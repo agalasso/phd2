@@ -743,6 +743,9 @@ bool Camera_ZWO::Capture(int duration, usImage& img, int options, const wxRect& 
     else
         FrameSize = LimitFrame.GetSize();
 
+    Debug.Write(wxString::Format("ZWO: Capture %dms %dx%d subf %d,%d+%dx%d fullsz %dx%d\n", duration, img.Size.x, img.Size.y,
+                                 subframe.x, subframe.y, subframe.width, subframe.height, FrameSize.x, FrameSize.y));
+
     if (img.Init(FrameSize))
     {
         DisconnectWithAlert(CAPT_FAIL_MEMORY);
@@ -784,6 +787,7 @@ bool Camera_ZWO::Capture(int duration, usImage& img, int options, const wxRect& 
         Debug.Write(wxString::Format("ZWO: set CONTROL_EXPOSURE %d\n", exposureUS));
         ASISetControlValue(m_cameraId, ASI_EXPOSURE, exposureUS, ASI_FALSE);
     }
+    Debug.Write(wxString::Format("ZWO: getexp ok %ld\n", cur_exp));
 
     long new_gain = cam_gain(m_minGain, m_maxGain, GuideCameraGain);
     long cur_gain;
@@ -792,9 +796,11 @@ bool Camera_ZWO::Capture(int duration, usImage& img, int options, const wxRect& 
         Debug.Write(wxString::Format("ZWO: set CONTROL_GAIN %d%% %d\n", GuideCameraGain, new_gain));
         ASISetControlValue(m_cameraId, ASI_GAIN, new_gain, ASI_FALSE);
     }
+    Debug.Write(wxString::Format("ZWO: getgain ok %ld\n", cur_gain));
 
     bool size_change = frame.GetSize() != m_frame.GetSize();
     bool pos_change = frame.GetLeftTop() != m_frame.GetLeftTop();
+    Debug.Write(wxString::Format("ZWO: sizechg %d poschg %d binchg %d\n", size_change, pos_change, binning_change));
 
     if (size_change || pos_change)
     {
@@ -811,6 +817,7 @@ bool Camera_ZWO::Capture(int duration, usImage& img, int options, const wxRect& 
         if (status != ASI_SUCCESS)
             Debug.Write(wxString::Format("ZWO: setImageFormat(%d,%d,%hu) => %d\n", frame.GetWidth(), frame.GetHeight(), Binning,
                                          status));
+        Debug.Write(wxString::Format("ZWO: setroi ok %dx%d bin %d bpp %d\n", frame.width, frame.height, Binning, m_bpp));
     }
 
     if (pos_change)
@@ -818,11 +825,13 @@ bool Camera_ZWO::Capture(int duration, usImage& img, int options, const wxRect& 
         ASI_ERROR_CODE status = ASISetStartPos(m_cameraId, frame.GetLeft(), frame.GetTop());
         if (status != ASI_SUCCESS)
             Debug.Write(wxString::Format("ZWO: setStartPos(%d,%d) => %d\n", frame.GetLeft(), frame.GetTop(), status));
+        Debug.Write(wxString::Format("ZWO: setpos ok %d,%d\n", frame.x, frame.y));
     }
 
     int poll = wxMin(duration, 100);
 
     unsigned char *const buffer = m_bpp == 16 && !useSubframe ? (unsigned char *) img.ImageData : (unsigned char *) m_buffer;
+    Debug.Write(wxString::Format("ZWO: buffer %p %u@%p %zu@%p\n", buffer, img.NPixels, img.ImageData, m_buffer_size, m_buffer));
 
     if (m_mode == CM_VIDEO)
     {
@@ -873,7 +882,9 @@ bool Camera_ZWO::Capture(int duration, usImage& img, int options, const wxRect& 
             if (tries > 1)
                 Debug.Write("ZWO: getexpstatus EXP_FAILED, retry exposure\n");
 
+            Debug.Write(wxString::Format("ZWO: call startexp is_dark=%d\n", is_dark));
             ASIStartExposure(m_cameraId, is_dark);
+            Debug.Write("ZWO: startexp ret\n");
 
             CameraWatchdog watchdog(duration,
                                     duration + GetTimeoutMs() + 10000); // total timeout is 2 * duration + 15s (typically)
@@ -901,22 +912,26 @@ bool Camera_ZWO::Capture(int duration, usImage& img, int options, const wxRect& 
                 }
                 if (expstatus == ASI_EXP_SUCCESS)
                 {
+                    Debug.Write("ZWO: frameready\n");
                     frame_ready = true;
                     break;
                 }
                 else if (expstatus != ASI_EXP_WORKING)
                 {
+                    Debug.Write("ZWO: failed-retry\n");
                     break; // failed, retry exposure
                 }
                 // ASI_EXP_WORKING
                 wxMilliSleep(poll);
                 if (WorkerThread::InterruptRequested())
                 {
+                    Debug.Write("ZWO: interrupted\n");
                     StopExposure();
                     return true;
                 }
                 if (watchdog.Expired())
                 {
+                    Debug.Write("ZWO: timedout\n");
                     StopExposure();
                     DisconnectWithAlert(CAPT_FAIL_TIMEOUT);
                     return true;
@@ -931,7 +946,9 @@ bool Camera_ZWO::Capture(int duration, usImage& img, int options, const wxRect& 
             return true;
         }
 
+        Debug.Write(wxString::Format("ZWO: call getdata %p %zu\n", buffer, m_buffer_size));
         ASI_ERROR_CODE status = ASIGetDataAfterExp(m_cameraId, buffer, m_buffer_size);
+        Debug.Write(wxString::Format("ZWO: call getdata ret %d\n", (int) status));
         if (status != ASI_SUCCESS)
         {
             Debug.Write(wxString::Format("ZWO: getdataafterexp ret %d\n", status));
@@ -972,6 +989,7 @@ bool Camera_ZWO::Capture(int duration, usImage& img, int options, const wxRect& 
     {
         if (m_bpp == 8)
         {
+            Debug.Write(wxString::Format("ZWO: fill img %u px\n", img.NPixels));
             for (unsigned int i = 0; i < img.NPixels; i++)
                 img.ImageData[i] = buffer[i];
         }

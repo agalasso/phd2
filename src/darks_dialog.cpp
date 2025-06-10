@@ -514,6 +514,7 @@ bool DarksDialog::CreateMasterDarkFrame(usImage& darkFrame, int expTime, int fra
 
         Debug.Write(wxString::Format("Capture dark frame %d/%d exp=%d\n", j, frameCount, expTime));
         err = GuideCamera::Capture(pCamera, expTime, darkFrame, CAPTURE_DARK);
+        Debug.Write(wxString::Format("Capture dark err=%d\n", err));
         if (err)
         {
             ShowStatus(wxString::Format(_("%.1f s dark FAILED"), (double) expTime / 1000.0), true);
@@ -540,6 +541,8 @@ bool DarksDialog::CreateMasterDarkFrame(usImage& darkFrame, int expTime, int fra
             memset(avgimg, 0, darkFrame.NPixels * sizeof(*avgimg));
         }
 
+        Debug.Write(wxString::Format("dark avgimg %u@%p => %u@%p\n", darkFrame.NPixels, darkFrame.ImageData, darkFrame.NPixels,
+                                     avgimg));
         unsigned int *iptr = avgimg;
         const unsigned short *usptr = darkFrame.ImageData;
         for (unsigned int i = 0; i < darkFrame.NPixels; i++)
